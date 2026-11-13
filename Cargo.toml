@@ -1,0 +1,28 @@
+[package]
+name = "netscan"
+version = "2.0.0"
+edition = "2021"
+description = "Scanner réseau IP avec interface graphique (ping, ARP, DNS/NetBIOS, ports TCP)"
+
+[[bin]]
+name = "NetScan"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.29", features = ["persistence"] }
+egui_extras = { version = "0.29", features = ["svg"] }
+rfd = "0.15"
+dns-lookup = "2"
+if-addrs = "0.13"
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+oui-data = "0.2"
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
