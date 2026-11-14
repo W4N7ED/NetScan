@@ -46,6 +46,9 @@ cargo build --release
 
 L'exécutable est produit dans `target\release\NetScan.exe`.
 
+Pour un exécutable destiné à être publié, utiliser `.\build-release.ps1` : il compile de la même façon mais retire
+de l'exe les chemins de la machine de compilation (dont le nom de la session Windows), puis vérifie qu'il n'en reste aucun.
+
 > Si le dossier du projet a un chemin très long (> 260 caractères avec `target\...`),
 > l'éditeur de liens échoue (LNK1104). Il suffit alors de définir un dossier de sortie court :
 > `set CARGO_TARGET_DIR=C:\build\netscan`
