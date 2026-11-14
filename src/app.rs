@@ -41,6 +41,8 @@ pub struct Settings {
     /// Taille et position de la fenêtre quand elle n'est pas agrandie (en points).
     pub win_size: Option<[f32; 2]>,
     pub win_pos: Option<[f32; 2]>,
+    /// Ordre des colonnes du tableau.
+    pub col_order: Vec<ColKind>,
 }
 
 impl Default for Settings {
@@ -58,6 +60,7 @@ impl Default for Settings {
             maximized: false,
             win_size: None,
             win_pos: None,
+            col_order: ColKind::DEFAULT_ORDER.to_vec(),
         }
     }
 }
@@ -111,14 +114,17 @@ enum Act {
     Sort(SortKey),
     ClearFilter,
     ShowInactive,
+    /// Déplace la première colonne à la place de la seconde.
+    MoveCol(ColKind, ColKind),
+    ResetCols,
 }
 
 // ---------------------------------------------------------------------------
 // Colonnes du tableau
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum ColKind {
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ColKind {
     Status,
     Ip,
     Name,
@@ -130,6 +136,18 @@ enum ColKind {
 }
 
 impl ColKind {
+    /// Ordre du design, modifiable par glisser-déposer des en-têtes.
+    const DEFAULT_ORDER: [ColKind; 8] = [
+        ColKind::Status,
+        ColKind::Ip,
+        ColKind::Name,
+        ColKind::Mac,
+        ColKind::Vendor,
+        ColKind::Rtt,
+        ColKind::Ports,
+        ColKind::Time,
+    ];
+
     fn title(self) -> &'static str {
         match self {
             ColKind::Status => "Statut",
@@ -162,36 +180,51 @@ struct Col {
     w: f32,
 }
 
-/// Grille du design : 76 · 112 · flexible · 138 · 150 · 58 · 224 · 60.
-/// Fenêtre moyenne : sans l'heure, ports resserrés. Étroit : sans MAC ni fabricant.
-fn layout_columns(left: f32, width: f32, wide: bool) -> Vec<Col> {
+/// Grille du design : 76 · 112 · flexible · 138 · 150 · 58 · 224 · 60, dans l'ordre choisi
+/// par l'utilisateur. Si la place manque, on retire l'heure, puis le fabricant, puis la MAC,
+/// en resserrant les ports ; le nom d'hôte prend toujours la largeur restante.
+fn layout_columns(left: f32, width: f32, order: &[ColKind]) -> Vec<Col> {
     use ColKind::*;
-    const FULL: [(ColKind, f32); 8] = [(Status, 76.0), (Ip, 112.0), (Name, 0.0), (Mac, 138.0), (Vendor, 150.0), (Rtt, 58.0), (Ports, 224.0), (Time, 60.0)];
-    const MEDIUM: [(ColKind, f32); 7] = [(Status, 76.0), (Ip, 112.0), (Name, 0.0), (Mac, 138.0), (Vendor, 130.0), (Rtt, 58.0), (Ports, 160.0)];
-    const NARROW: [(ColKind, f32); 5] = [(Status, 76.0), (Ip, 112.0), (Name, 0.0), (Rtt, 58.0), (Ports, 128.0)];
-    let build = |defs: &[(ColKind, f32)]| {
+    // (colonnes masquées, largeur fabricant, largeur ports, largeur minimale du nom)
+    const TIERS: [(&[ColKind], f32, f32, f32); 4] = [
+        (&[], 150.0, 224.0, 140.0),
+        (&[Time], 130.0, 160.0, 120.0),
+        (&[Time, Vendor], 0.0, 128.0, 110.0),
+        (&[Time, Vendor, Mac], 0.0, 128.0, 0.0),
+    ];
+    let mut cols = Vec::new();
+    for (hidden, vendor_w, ports_w, min_name) in TIERS {
+        let defs: Vec<(ColKind, f32)> = order
+            .iter()
+            .filter(|k| !hidden.contains(k))
+            .map(|&k| {
+                let cw = match k {
+                    Status => 76.0,
+                    Ip => 112.0,
+                    Name => 0.0,
+                    Mac => 138.0,
+                    Vendor => vendor_w,
+                    Rtt => 58.0,
+                    Ports => ports_w,
+                    Time => 60.0,
+                };
+                (k, cw)
+            })
+            .collect();
         let fixed: f32 = defs.iter().map(|d| d.1).sum();
         let flex = width - 24.0 - 12.0 * (defs.len() as f32 - 1.0) - fixed;
         let mut x = left + 12.0;
-        let mut cols = Vec::new();
-        for &(kind, cw) in defs {
-            let cw = if cw == 0.0 { flex.max(60.0) } else { cw };
+        cols.clear();
+        for (kind, cw) in defs {
+            let cw = if kind == Name { flex.max(60.0) } else { cw };
             cols.push(Col { kind, x, w: cw });
             x += cw + 12.0;
         }
-        (cols, flex)
-    };
-    if wide {
-        let (cols, flex) = build(&FULL);
-        if flex >= 140.0 {
-            return cols;
-        }
-        let (cols, flex) = build(&MEDIUM);
-        if flex >= 120.0 {
-            return cols;
+        if flex >= min_name {
+            break;
         }
     }
-    build(&NARROW).0
+    cols
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +283,12 @@ impl NetScanApp {
         if first_run {
             // Premier lancement : on suit le thème clair / sombre de Windows.
             s.dark_mode = crate::win::system_prefers_dark().unwrap_or(false);
+        }
+        // Ordre des colonnes illisible ou incomplet (ancienne version) : celui du design.
+        if s.col_order.len() != ColKind::DEFAULT_ORDER.len()
+            || ColKind::DEFAULT_ORDER.iter().any(|k| !s.col_order.contains(k))
+        {
+            s.col_order = ColKind::DEFAULT_ORDER.to_vec();
         }
         restore_window(&cc.egui_ctx, &s);
         let nets = scanner::local_networks();
@@ -803,6 +842,14 @@ impl NetScanApp {
                 self.filter.clear();
                 self.view_dirty = true;
             }
+            Act::MoveCol(src, dst) => {
+                let order = &mut self.s.col_order;
+                if let (Some(si), Some(di)) = (order.iter().position(|k| *k == src), order.iter().position(|k| *k == dst)) {
+                    order.remove(si);
+                    order.insert(di, src);
+                }
+            }
+            Act::ResetCols => self.s.col_order = ColKind::DEFAULT_ORDER.to_vec(),
             Act::ShowInactive => {
                 self.s.show_down = true;
                 self.view_dirty = true;
@@ -1215,8 +1262,7 @@ impl NetScanApp {
         } else {
             (rect, None)
         };
-        let wide = panel_rect.is_none();
-        ui.allocate_new_ui(UiBuilder::new().max_rect(table_rect), |ui| self.table(ui, p, acts, wide));
+        ui.allocate_new_ui(UiBuilder::new().max_rect(table_rect), |ui| self.table(ui, p, acts));
         if let (Some(h), Some(pr)) = (selected, panel_rect) {
             ui.allocate_new_ui(UiBuilder::new().max_rect(pr), |ui| self.details(ui, p, &h, acts));
         }
@@ -1337,11 +1383,13 @@ impl NetScanApp {
 
     // -- Tableau ------------------------------------------------------------
 
-    fn table(&self, ui: &mut Ui, p: &'static Palette, acts: &mut Vec<Act>, wide: bool) {
+    fn table(&self, ui: &mut Ui, p: &'static Palette, acts: &mut Vec<Act>) {
         let rect = ui.max_rect();
         ui.painter().rect_filled(rect, 8.0, p.surface);
         let inner = rect.shrink(1.0);
-        let cols = layout_columns(inner.left(), inner.width(), wide);
+        let cols = layout_columns(inner.left(), inner.width(), &self.s.col_order);
+        // Colonne en cours de déplacement : (trait d'insertion, étiquette qui suit la souris).
+        let mut drag_mark: Option<(f32, &'static str, egui::Pos2)> = None;
 
         // En-tête
         let header = Rect::from_min_size(inner.min, vec2(inner.width(), 32.0));
@@ -1349,12 +1397,37 @@ impl NetScanApp {
         painter.rect_filled(header, Rounding { nw: 7.0, ne: 7.0, sw: 0.0, se: 0.0 }, p.surface2);
         painter.hline(header.x_range(), header.bottom() - 0.5, stroke(1.0, p.border));
         let cy = header.center().y;
-        for c in &cols {
+        let col_at = |x: f32| cols.iter().position(|t| x >= t.x - 6.0 && x < t.x + t.w + 6.0);
+        for (ci, c) in cols.iter().enumerate() {
             let key = c.kind.sort_key();
             let sorted = self.sort == key;
             let hit = Rect::from_min_size(pos2(c.x - 6.0, header.top()), vec2(c.w + 12.0, 32.0));
-            let resp = ui.interact(hit, ui.id().with(("col", c.kind)), Sense::click());
-            let color = if sorted { p.accent_text } else if resp.hovered() { p.text } else { p.text2 };
+            // Clic : trier. Glisser : déplacer la colonne. Clic droit : ordre par défaut.
+            let resp = ui.interact(hit, ui.id().with(("col", c.kind)), Sense::click_and_drag());
+            let pointer = ui.input(|i| i.pointer.interact_pos());
+            let target = pointer.and_then(|pos| col_at(pos.x)).filter(|&ti| ti != ci);
+            if resp.dragged() {
+                if let Some(pos) = pointer {
+                    let line_x = target.map(|ti| {
+                        let t = &cols[ti];
+                        if ti < ci { t.x - 6.0 } else { t.x + t.w + 6.0 }
+                    });
+                    drag_mark = Some((line_x.unwrap_or(f32::NAN), c.kind.title(), pos));
+                }
+            }
+            if resp.drag_stopped() {
+                if let Some(ti) = target {
+                    acts.push(Act::MoveCol(c.kind, cols[ti].kind));
+                }
+            }
+            resp.context_menu(|ui| {
+                ui.set_min_width(230.0);
+                if w::menu_item(ui, p, Some(&icons::REFRESH), "Rétablir l'ordre des colonnes", None).clicked() {
+                    acts.push(Act::ResetCols);
+                    ui.close_menu();
+                }
+            });
+            let color = if sorted || resp.dragged() { p.accent_text } else if resp.hovered() { p.text } else { p.text2 };
             let g = w::galley(ui, c.kind.title(), semibold(12.0), color);
             let gw = g.size().x;
             let full = gw + if sorted { 16.0 } else { 0.0 };
@@ -1364,9 +1437,24 @@ impl NetScanApp {
                 let ic = if self.sort_asc { &icons::CHEVRON_UP } else { &icons::CHEVRON_DOWN_BOLD };
                 icons::paint(ui, ic, w::icon_rect(x + gw + 4.0, cy, 12.0), color);
             }
-            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            let resp = resp
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Cliquer pour trier · glisser pour déplacer la colonne");
+            if resp.clicked() {
                 acts.push(Act::Sort(key));
             }
+        }
+        if let Some((line_x, title, pos)) = drag_mark {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            let top = egui::LayerId::new(egui::Order::Tooltip, ui.id().with("col_drag"));
+            let fg = ui.ctx().layer_painter(top);
+            if line_x.is_finite() {
+                fg.vline(line_x, rect.y_range(), stroke(2.0, p.accent));
+            }
+            let g = w::galley(ui, title, semibold(12.0), p.text);
+            let tag = Rect::from_min_size(pos2(pos.x + 12.0, header.top() + 3.0), vec2(g.size().x + 20.0, 26.0));
+            fg.rect(tag, 6.0, p.menu, stroke(1.0, p.accent));
+            w::text_at(&fg, g, tag.left() + 10.0, tag.center().y);
         }
 
         // Corps

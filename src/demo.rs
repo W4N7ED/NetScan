@@ -3,7 +3,8 @@
 //! l'interface sans toucher à la souris.
 //!
 //! Format : `secondes:action:arguments` séparés par `;`
-//! ex. `9:click:450,227;10:rclick:450,259;11:move:520,433;12:key:Escape`
+//! ex. `9:click:450,247;10:rclick:450,279;11:move:520,433;12:key:Escape`
+//! Glisser-déposer : `1:down:700,215;1.5:move:500,215;2:up:450,215`
 
 use eframe::egui::{self, Event, Key, Modifiers, PointerButton, Pos2, RawInput};
 use std::time::Instant;
@@ -41,6 +42,12 @@ impl Script {
                     steps.push((t, Step::Move(p)));
                     steps.push((t + 0.05, Step::Button(b, p, true)));
                     steps.push((t + 0.15, Step::Button(b, p, false)));
+                }
+                // Glisser-déposer : `down`, un ou plusieurs `move`, puis `up`.
+                "down" | "up" => {
+                    let p = pos()?;
+                    steps.push((t, Step::Move(p)));
+                    steps.push((t + 0.05, Step::Button(PointerButton::Primary, p, action == "down")));
                 }
                 "key" => {
                     let k = Key::from_name(arg)?;

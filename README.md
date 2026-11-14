@@ -12,7 +12,7 @@ Version graphique de `Scan-Network.ps1`, en un seul exécutable Windows (aucun r
 | **Infos par hôte** | nom (DNS inverse, puis NetBIOS), adresse MAC, **fabricant** (registre IEEE embarqué), latence, ports TCP ouverts |
 | **Suivi entre deux scans** | le dernier scan est rechargé au lancement ; au scan suivant, les appareils **nouveaux** et **disparus** sont signalés (taper `nouveau` ou `disparu` dans le filtre pour les isoler) |
 | **Ports** | liste libre (`22,80,8000-8100`) + préréglages (Web, Windows/AD, Bases de données, 1-1024…) |
-| **Tableau** | résultats en direct, tri par colonne, filtre texte (IP, nom, MAC, fabricant, port, service), affichage des inactifs |
+| **Tableau** | résultats en direct, tri par colonne (clic sur l'en-tête), colonnes déplaçables (glisser l'en-tête ; clic droit pour rétablir l'ordre), filtre texte (IP, nom, MAC, fabricant, port, service), affichage des inactifs |
 | **Actions** (clic droit ou panneau de détails) | ouvrir http/https, RDP, partages SMB, SSH, ping continu, traceroute, Wake-on-LAN, rescanner un seul hôte, copier IP/nom/MAC |
 | **Export** | CSV (séparateur `;`, compatible Excel, colonnes du script PowerShell + `Detection` et `Vendor`) ou copie collable dans Excel |
 | **Clavier** | F5 lancer · Entrée (dans Plage IP / Ports) lancer · Échap arrêter, fermer le menu ou désélectionner · ↑/↓ changer d'hôte · Ctrl+C copier l'IP · Ctrl+Maj+C copier la ligne |

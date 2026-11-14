@@ -134,6 +134,7 @@ impl Palette {
 // ---------------------------------------------------------------------------
 
 pub const SEMIBOLD: &str = "semibold";
+const CONSOLAS_DROP: f32 = 0.22;
 
 pub fn regular(size: f32) -> FontId {
     FontId::proportional(size)
@@ -150,19 +151,23 @@ pub fn setup_fonts(ctx: &egui::Context) {
     let default_prop = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     let default_mono = fonts.families.get(&FontFamily::Monospace).cloned().unwrap_or_default();
 
-    let mut load = |name: &str, path: &str| -> bool {
+    // `drop` : décalage vers le bas, en fraction de la taille de police.
+    let mut load = |name: &str, path: &str, drop: f32| -> bool {
         match std::fs::read(path) {
             Ok(bytes) => {
-                fonts.font_data.insert(name.to_owned(), egui::FontData::from_owned(bytes));
+                let tweak = egui::FontTweak { y_offset_factor: drop, ..Default::default() };
+                fonts.font_data.insert(name.to_owned(), egui::FontData::from_owned(bytes).tweak(tweak));
                 true
             }
             Err(_) => false,
         }
     };
-    let has_regular = load("segoe", r"C:\Windows\Fonts\segoeui.ttf");
-    let has_semibold = load("segoe-sb", r"C:\Windows\Fonts\seguisb.ttf");
-    let has_mono = load("consolas", r"C:\Windows\Fonts\consola.ttf");
-    let has_symbol = load("segoe-sym", r"C:\Windows\Fonts\seguisym.ttf");
+    let has_regular = load("segoe", r"C:\Windows\Fonts\segoeui.ttf", 0.0);
+    let has_semibold = load("segoe-sb", r"C:\Windows\Fonts\seguisb.ttf", 0.0);
+    // Consolas a une ligne moins haute que Segoe UI : sans ce décalage, les IP, MAC et
+    // ports paraissent 3 px plus haut que le texte voisin.
+    let has_mono = load("consolas", r"C:\Windows\Fonts\consola.ttf", CONSOLAS_DROP);
+    let has_symbol = load("segoe-sym", r"C:\Windows\Fonts\seguisym.ttf", 0.0);
 
     let mut prop: Vec<String> = Vec::new();
     if has_regular {
