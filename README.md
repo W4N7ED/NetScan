@@ -2,6 +2,10 @@
 
 Version graphique de `Scan-Network.ps1`, en un seul exécutable Windows (aucun runtime à installer, aucun droit administrateur requis).
 
+![NetScan : résultats d'un scan, avec les appareils nouveaux et disparus](docs/screenshot.png)
+
+*Capture réalisée sur un réseau fictif.*
+
 ## Fonctionnalités
 
 | | |
